@@ -1,0 +1,101 @@
+---
+title: "1° trabalho de mineração"
+author: "Marcelo da Silva Landim"
+format: pdf
+editor: visual
+date: today
+---
+
+# 1.0 Descrição do trabalho
+
+## 1.1 problema proposto
+
+O seguinte trabalho tem como objetivo preparar um dataset para uma futura análise de risco, focando em micro-segmentos de risco para pessoa jurídica (PJ) no estado de Alagoas (AL). O processo envolve a filtragem e preparação de dados para posterior análise de risco creditício.
+
+## 1.2 Descrição do processo
+
+### 1.2.1 instalação dos pacotes utilizados
+
+-   **DuckDB**: Utilizado para processamento eficiente de dados em memória
+-   **dplyr**: Empregado para manipulação e transformação de dados
+-   **tibble**: Usado para melhor visualização de dataframes.
+
+### 1.2.2 Configuração do Ambiente
+
+-   Conexão com banco de dados DuckDB em memória
+-   Definição do caminho do arquivo CSV contendo os dados originais.
+
+### 1.2.3 Filtro aplicado nos Dados
+
+-   Aplicação de filtros específicos:
+    -   UF = 'AL' (Estado de Alagoas)
+    -   cliente = 'PJ' (Pessoa Jurídica)
+-   Execução via consulta SQL para eficiência.
+
+### 1.2.4 Análise utilizadas
+
+-   Verificação da estrutura dos dados filtrados
+-   Estatísticas descritivas das variáveis numéricas
+-   Confirmação dos filtros aplicados.
+
+## 1.3 Resultados Esperados
+
+-   Dataset filtrado contendo apenas PJs de Alagoas
+-   Base preparada para análises de risco subsequentes
+-   Documentação do processo de preparação.
+
+# 2.0 Código R Utilizado
+
+```{r}
+#| echo: True
+#| eval: True
+#| warning: False
+#| message: False
+# Projeto- Preparação de Datasets para Análise de Risco
+# Opção escolhida: 1 - Micro-Segmentos de Risco (Pessoa jurídica)
+# UF escolhida: Alagoas (AL)
+
+# Carregar as bibliotecas necessárias
+library(tinytex)
+library(duckdb)
+library(dplyr)
+library(tibble)
+
+# Configurar conexão com DuckDB (banco de dados em memória)
+con <- dbConnect(duckdb::duckdb(), dbdir = ":memory:")
+
+#  o caminho para o arquivo CSV baixado
+caminho_csv <- "C:/Users/Katia/OneDrive/Documentos/marcelo/mineração de dados/minera-o/planilha_2025/planilha_202508.csv" 
+
+# Filtros aplicados: UF = 'AL' AND cliente = 'PJ'
+consulta_sql <- "
+SELECT 
+    *
+FROM 
+    read_csv_auto(?) 
+WHERE 
+    UF = 'AL' 
+    AND cliente = 'PJ'
+"
+
+# Executar a consulta e carregar os resultados em um dataframe
+df_filtrado <- dbGetQuery(con, consulta_sql, list(caminho_csv))
+
+# Fechar a conexão com o banco de dados
+dbDisconnect(con)
+
+# Análise exploratória do dataframe resultante
+# Visualização rápida da estrutura dos dados
+cat("=== ESTRUTURA DO DATAFRAME (glimpse) ===\n")
+glimpse(df_filtrado)
+
+# Estatísticas descritivas das variáveis numéricas
+cat("\n=== ESTATÍSTICAS DESCRITIVAS (summary) ===\n")
+summary(df_filtrado)
+
+# Verificação adicional dos filtros aplicados
+cat("\n=== VERIFICAÇÃO DOS FILTROS ===\n")
+cat("Valores únicos na coluna UF:", unique(df_filtrado$UF), "\n")
+cat("Valores únicos na coluna cliente:", unique(df_filtrado$cliente), "\n")
+cat("Dimensões do dataframe (linhas x colunas):", dim(df_filtrado), "\n")
+```
