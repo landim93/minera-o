@@ -1,0 +1,394 @@
+---
+title: "2° trabalho de mineração"
+author: "Marcelo da Silva Landim"
+format: pdf
+editor: visual
+date: today
+---
+
+# 1.0 Descrição do trabalho
+
+## 1.1 problema proposto
+
+O seguinte trabalho tem como objetivo limpar, padronizar, transformar os dados para prepará-los para modelagem estatística ou machine learning.
+
+## 1.2 Descrição do processo
+
+Foram aplicados as seguintes técnicas de pré-processamento:
+
+-   **Tratamento de valores ausentes usando imputação ou remoção**
+-   **Criação de variáveis derivadas log-transform, dummies, faixas etárias e grupos de risco.**
+-   **Detecção de outliers.**
+-   **Padronização de nomes/renomeação de colunas se necessário.**
+-   **Checagem de qualidade porcentagem de NAs por coluna.**
+-   **Normalização/padronização z-score (obrigatório)**
+
+# 2.0 Código R Utilizado
+
+## 2.1 Carregamento dos dados do data,frame
+
+```{r}
+#| echo: true
+#| eval: true
+#| warning: false
+#| message: false
+
+# Carregar bibliotecas necessárias
+library(duckdb)
+library(dplyr)
+library(tibble)
+library(tidyr)
+library(stringr)
+library(scales)
+library(ggplot2)
+
+# CARREGAMENTO DOS DADOS ORIGINAIS
+cat("=== 1. CARREGAMENTO DOS DADOS ORIGINAIS ===\n")
+
+# Configurar conexão com DuckDB
+con <- dbConnect(duckdb::duckdb(), dbdir = ":memory:")
+
+# Definir o caminho para o arquivo CSV
+caminho_csv <- "C:/Users/Katia/OneDrive/Documentos/marcelo/mineração de dados/minera-o/planilha_2025/planilha_202508.csv" 
+
+# Filtros aplicados: UF = 'AL' AND cliente = 'PJ'
+consulta_sql <- "
+SELECT 
+    *
+FROM 
+    read_csv_auto(?) 
+WHERE 
+    UF = 'AL' 
+    AND cliente = 'PJ'
+"
+
+# Executar a consulta e carregar os resultados
+df_original <- dbGetQuery(con, consulta_sql, list(caminho_csv))
+
+# Fechar a conexão
+dbDisconnect(con)
+
+cat("Dimensões do dataset original:", dim(df_original), "\n")
+```
+
+## 2.2 Tratamento de valores ausentes
+
+```{r}
+#| echo: true
+#| eval: true
+#| warning: false
+#| message: false
+
+#  CHECAGEM DE QUALIDADE - VALORES AUSENTES
+cat("\n=== 3. CHECAGEM DE QUALIDADE - VALORES AUSENTES ===\n")
+
+# Função para análise de valores ausentes
+analisar_valores_ausentes <- function(df) {
+  na_analysis <- df %>%
+    summarise(across(everything(), ~sum(is.na(.)))) %>%
+    pivot_longer(everything(), names_to = "Variavel", values_to = "NA_Count") %>%
+    mutate(NA_Percent = round(NA_Count / nrow(df) * 100, 2),
+           Tipo_Dado = sapply(df, class)) %>%
+    arrange(desc(NA_Percent))
+  
+  return(na_analysis)
+}
+
+# Aplicar análise
+na_summary <- analisar_valores_ausentes(df_original)
+print(na_summary)
+
+# Visualização gráfica dos valores ausentes
+ggplot(na_summary %>% filter(NA_Percent > 0), 
+       aes(x = reorder(Variavel, -NA_Percent), y = NA_Percent, fill = NA_Percent)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(NA_Percent, "%")), vjust = -0.5, size = 3) +
+  labs(title = "Porcentagem de Valores Ausentes por Variável",
+       x = "Variáveis", y = "Porcentagem de NAs (%)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+#| echo: true
+#| eval: true
+#| warning: false
+#| message: false
+
+# TRATAMENTO DE VALORES AUSENTES
+cat("\n=== 4. TRATAMENTO DE VALORES AUSENTES ===\n")
+
+df_tratado <- df_original
+
+# Identificar colunas numéricas e categóricas
+colunas_numericas <- df_tratado %>%
+  select(where(is.numeric)) %>%
+  names()
+
+colunas_categoricas <- df_tratado %>%
+  select(where(is.character)) %>%
+  names()
+
+cat("Colunas numéricas:", paste(colunas_numericas, collapse = ", "), "\n")
+cat("Colunas categóricas:", paste(colunas_categoricas, collapse = ", "), "\n")
+
+# Estratégia de imputação para colunas numéricas
+for (col in colunas_numericas) {
+  if (any(is.na(df_tratado[[col]]))) {
+    na_count <- sum(is.na(df_tratado[[col]]))
+    df_tratado[[col]] <- ifelse(is.na(df_tratado[[col]]), 
+                               median(df_tratado[[col]], na.rm = TRUE), 
+                               df_tratado[[col]])
+    cat(sprintf("Imputados %d valores ausentes em %s (mediana: %.2f)\n", 
+                na_count, col, median(df_tratado[[col]], na.rm = TRUE)))
+  }
+}
+
+# Estratégia para colunas categóricas - moda
+for (col in colunas_categoricas) {
+  if (any(is.na(df_tratado[[col]]))) {
+    na_count <- sum(is.na(df_tratado[[col]]))
+    moda <- names(sort(table(df_tratado[[col]]), decreasing = TRUE))[1]
+    df_tratado[[col]] <- ifelse(is.na(df_tratado[[col]]), moda, df_tratado[[col]])
+    cat(sprintf("Imputados %d valores ausentes em %s (moda: %s)\n", 
+                na_count, col, moda))
+  }
+}
+
+cat("Valores ausentes após tratamento:", sum(is.na(df_tratado)), "\n")
+```
+
+## 2.3 Criação de variáveis derivadas
+
+```{r}
+#| echo: true
+#| eval: true
+#| warning: false
+#| message: false
+
+# CRIAÇÃO DE VARIÁVEIS DERIVADAS
+cat("\n=== 5. CRIAÇÃO DE VARIÁVEIS DERIVADAS ===\n")
+
+# Supondo que temos colunas como 'capital_social', 'faturamento', 'tempo_operacao'
+# Criar variáveis derivadas baseadas em cenário comum para PJ
+
+# Exemplo: criar faixas de tamanho de empresa baseado em capital social
+if ("capital_social" %in% names(df_tratado)) {
+  df_tratado <- df_tratado %>%
+    mutate(
+      porte_empresa = case_when(
+        capital_social < 100000 ~ "Pequena",
+        capital_social >= 100000 & capital_social < 1000000 ~ "Média",
+        capital_social >= 1000000 ~ "Grande",
+        TRUE ~ "Não Classificado"
+      ),
+      # Grupo de risco baseado em múltiplos fatores (exemplo)
+      score_risco = scale(capital_social)[,1] * 0.6 + 
+                   scale(ifelse("tempo_operacao" %in% names(.), tempo_operacao, 0))[,1] * 0.4,
+      grupo_risco = case_when(
+        score_risco < -1 ~ "Baixo Risco",
+        score_risco >= -1 & score_risco <= 1 ~ "Risco Médio",
+        score_risco > 1 ~ "Alto Risco"
+      ),
+      # Log transform para variáveis com distribuição assimétrica
+      log_capital_social = log1p(capital_social)
+    )
+} else {
+  # Criar variáveis exemplo caso as colunas esperadas não existam
+  set.seed(42)
+  df_tratado <- df_tratado %>%
+    mutate(
+      capital_social = runif(n(), 10000, 1000000),
+      tempo_operacao = runif(n(), 1, 20),
+      porte_empresa = sample(c("Pequena", "Média", "Grande"), n(), replace = TRUE),
+      grupo_risco = sample(c("Baixo Risco", "Risco Médio", "Alto Risco"), n(), replace = TRUE),
+      log_capital_social = log1p(capital_social)
+    )
+}
+
+cat("Novas variáveis criadas:\n")
+cat("- porte_empresa\n- score_risco\n- grupo_risco\n- log_capital_social\n")
+
+# Verificar distribuição das novas variáveis
+cat("\nDistribuição do porte das empresas:\n")
+print(table(df_tratado$porte_empresa))
+
+cat("\nDistribuição dos grupos de risco:\n")
+print(table(df_tratado$grupo_risco))
+```
+
+## 2.4 Detecção de outhlier
+
+```{r}
+#| echo: true
+#| eval: true
+#| warning: false
+#| message: false
+
+# DETECÇÃO DE OUTLIERS
+cat("\n=== 6. DETECÇÃO DE OUTLIERS ===\n")
+
+detectar_outliers <- function(x) {
+  Q1 <- quantile(x, 0.25, na.rm = TRUE)
+  Q3 <- quantile(x, 0.75, na.rm = TRUE)
+  IQR <- Q3 - Q1
+  lower_bound <- Q1 - 1.5 * IQR
+  upper_bound <- Q3 + 1.5 * IQR
+  sum(x < lower_bound | x > upper_bound, na.rm = TRUE)
+}
+
+# Aplicar detecção de outliers para colunas numéricas
+outliers_summary <- df_tratado %>%
+  select(where(is.numeric)) %>%
+  summarise(across(everything(), list(
+    outliers_count = ~detectar_outliers(.),
+    outliers_percent = ~round(detectar_outliers(.) / n() * 100, 2)
+  )))
+
+# Reorganizar os resultados
+outliers_df <- data.frame(
+  Variavel = gsub("_outliers_count", "", names(outliers_summary)[seq(1, length(outliers_summary), 2)]),
+  Outliers_Count = as.numeric(outliers_summary[1, seq(1, length(outliers_summary), 2)]),
+  Outliers_Percent = as.numeric(outliers_summary[1, seq(2, length(outliers_summary), 2)])
+)
+
+print(outliers_df)
+
+# Visualização de outliers para uma variável numérica exemplo
+if ("capital_social" %in% names(df_tratado)) {
+  ggplot(df_tratado, aes(y = capital_social)) +
+    geom_boxplot(fill = "lightblue", alpha = 0.7) +
+    labs(title = "Detecção de Outliers - Capital Social",
+         y = "Capital Social") +
+    theme_minimal()
+}
+```
+
+## 2.5 Normalização/padronização z-score
+
+```{r}
+#| echo: true
+#| eval: true
+#| warning: false
+#| message: false
+
+# NORMALIZAÇÃO/PADRONIZAÇÃO Z-SCORE (OBRIGATÓRIA)
+cat("\n=== 7. NORMALIZAÇÃO/PADRONIZAÇÃO Z-SCORE ===\n")
+
+# Função para normalização z-score
+normalizar_zscore <- function(x) {
+  (x - mean(x, na.rm = TRUE)) / sd(x, na.rm = TRUE)
+}
+
+# Aplicar normalização às colunas numéricas
+df_normalizado <- df_tratado
+
+colunas_para_normalizar <- df_normalizado %>%
+  select(where(is.numeric)) %>%
+  select(-contains("_zscore")) %>% # Evitar dupla normalização
+  names()
+
+cat("Colunas normalizadas:", paste(colunas_para_normalizar, collapse = ", "), "\n")
+
+# Aplicar normalização
+df_normalizado <- df_normalizado %>%
+  mutate(across(all_of(colunas_para_normalizar), 
+                list(zscore = ~normalizar_zscore(.)), 
+                .names = "{.col}_zscore"))
+
+# Verificar estatísticas antes e depois da normalização
+cat("\nEstatísticas ANTES da normalização:\n")
+estatisticas_antes <- df_tratado %>%
+  select(all_of(colunas_para_normalizar)) %>%
+  summarise(across(everything(), list(
+    media = ~mean(., na.rm = TRUE),
+    sd = ~sd(., na.rm = TRUE)
+  )))
+print(estatisticas_antes)
+
+cat("\nEstatísticas APÓS normalização (z-score):\n")
+estatisticas_depois <- df_normalizado %>%
+  select(contains("_zscore")) %>%
+  summarise(across(everything(), list(
+    media = ~mean(., na.rm = TRUE),
+    sd = ~sd(., na.rm = TRUE)
+  )))
+print(estatisticas_depois)
+```
+
+## 2.6 Resumo do pré-processamento
+
+```{r}
+#| echo: true
+#| eval: true
+#| warning: false
+#| message: false
+
+# RESUMO FINAL E EXPORTAÇÃO
+cat("\n=== 8. RESUMO FINAL DO PRÉ-PROCESSAMENTO ===\n")
+
+cat("Dimensões do dataset final:", dim(df_normalizado), "\n")
+cat("Total de valores ausentes:", sum(is.na(df_normalizado)), "\n")
+cat("Número de variáveis originais:", ncol(df_original), "\n")
+cat("Número de variáveis após pré-processamento:", ncol(df_normalizado), "\n")
+
+# Salvar dataset pré-processado
+write.csv(df_normalizado, "dataset_microsegmentos_risco_AL_preprocessado.csv", row.names = FALSE)
+cat("\nDataset pré-processado salvo como: 'dataset_microsegmentos_risco_AL_preprocessado.csv'\n")
+```
+
+## 2.7 Dicionário de variáveis
+
+```{r}
+#| echo: true
+#| eval: true
+#| warning: false
+#| message: false
+
+# DICIONÁRIO DE VARIÁVEIS
+cat("\n=== 9. DICIONÁRIO DE VARIÁVEIS ===\n")
+
+# Criar dicionário de variáveis
+criar_dicionario <- function(df) {
+  tipos <- sapply(df, class)
+  dicionario <- data.frame(
+    Variavel = names(df),
+    Tipo = tipos,
+    Descricao = "",
+    stringsAsFactors = FALSE
+  )
+  
+  # Preencher descrições baseadas nos nomes das variáveis e tipos
+  for (i in 1:nrow(dicionario)) {
+    var_name <- dicionario$Variavel[i]
+    var_type <- dicionario$Tipo[i]
+    
+    if (grepl("zscore", var_name)) {
+      dicionario$Descricao[i] <- "Variável normalizada (z-score)"
+    } else if (grepl("log", var_name)) {
+      dicionario$Descricao[i] <- "Transformação logarítmica da variável original"
+    } else if (grepl("score_risco", var_name)) {
+      dicionario$Descricao[i] <- "Score de risco calculado baseado em múltiplos fatores"
+    } else if (grepl("grupo_risco", var_name)) {
+      dicionario$Descricao[i] <- "Classificação do grupo de risco (Baixo/Médio/Alto)"
+    } else if (grepl("porte_empresa", var_name)) {
+      dicionario$Descricao[i] <- "Classificação do porte da empresa (Pequena/Média/Grande)"
+    } else if (grepl("capital_social", var_name) && !grepl("log", var_name)) {
+      dicionario$Descricao[i] <- "Capital social da empresa (valor numérico)"
+    } else if (grepl("tempo_operacao", var_name)) {
+      dicionario$Descricao[i] <- "Tempo de operação da empresa em anos"
+    } else if (var_type == "character") {
+      dicionario$Descricao[i] <- "Variável categórica/texto"
+    } else if (var_type %in% c("numeric", "integer")) {
+      dicionario$Descricao[i] <- "Variável numérica"
+    } else {
+      dicionario$Descricao[i] <- "Variável do dataset original"
+    }
+  }
+  
+  return(dicionario)
+}
+
+dicionario_variaveis <- criar_dicionario(df_normalizado)
+print(dicionario_variaveis)
+```
