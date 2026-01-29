@@ -194,22 +194,22 @@ accuracy(beer_previsao, beer) %>%
 
 # 1.2 - Validacao Cruzada -------------------------------------------------
 
-length(beer_train$Beer)*0.8 
+length(beer_train$Beer)*0.9 
 
 ## Visualizar a validacao
 validacao <-beer_train |>
-  stretch_tsibble(.init = 54, .step = 1)
+  stretch_tsibble(.init = 61, .step = 1)
 
 validacao
 
 ## Quantas validacoes?
 table(validacao$.id)
 
-## Validacao dos modelos 
+          ## Validacao dos modelos 
 validacao_fit <-beer_train |>
-  stretch_tsibble(.init = 54, .step = 1)|>
+  stretch_tsibble(.init = 61, .step = 1)|>
   model(arima  = ARIMA(Beer),
-        sarima310_000 = ARIMA(Beer ~ pdq(3,1,0)+PDQ(0,0,0)),
+        sarima310_000 = ARIMA(Beer ~ pdq(3,1,0)+PDQ(0,0,0)),# no trabalho da disciplina não usar esse modelo, apenas os outros 3
         naive  = NAIVE(Beer),
         snaive = SNAIVE(Beer))
 
